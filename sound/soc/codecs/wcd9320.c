@@ -332,6 +332,7 @@ MODULE_PARM_DESC(spkr_drv_wrnd,
 			SNDRV_PCM_FORMAT_S24_LE)
 
 #define TAIKO_FORMATS (SNDRV_PCM_FMTBIT_S16_LE)
+#define TAIKO_SLIM_PGD_PORT_INT_TX_EN0 (TAIKO_SLIM_PGD_PORT_INT_EN0 + 2)
 
 enum {
 	AIF1_PB = 0,
@@ -3451,10 +3452,7 @@ static int taiko_hphl_dac_event(struct snd_soc_dapm_widget *w,
 		}
 
 		break;
-	case SND_SOC_DAPM_POST_PMU:
-		snd_soc_update_bits(codec, TAIKO_A_CDC_RX1_B3_CTL, 0xBC, 0x94);
-		snd_soc_update_bits(codec, TAIKO_A_CDC_RX1_B4_CTL, 0x30, 0x10);
-		break;
+	
 	case SND_SOC_DAPM_PRE_PMD:
 		snd_soc_update_bits(codec, TAIKO_A_CDC_RX1_B3_CTL, 0xBC, 0x00);
 		snd_soc_update_bits(codec, TAIKO_A_CDC_RX1_B4_CTL, 0x30, 0x00);
@@ -3462,10 +3460,6 @@ static int taiko_hphl_dac_event(struct snd_soc_dapm_widget *w,
 	case SND_SOC_DAPM_POST_PMU:
 		snd_soc_update_bits(codec, TAIKO_A_CDC_RX1_B3_CTL, 0xBC, 0x94);
 		snd_soc_update_bits(codec, TAIKO_A_CDC_RX1_B4_CTL, 0x30, 0x10);
-		break;
-	case SND_SOC_DAPM_PRE_PMD:
-		snd_soc_update_bits(codec, TAIKO_A_CDC_RX1_B3_CTL, 0xBC, 0x00);
-		snd_soc_update_bits(codec, TAIKO_A_CDC_RX1_B4_CTL, 0x30, 0x00);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		snd_soc_update_bits(codec, TAIKO_A_CDC_CLK_RDAC_CLK_EN_CTL,
@@ -6013,8 +6007,9 @@ static irqreturn_t taiko_slimbus_irq(int irq, void *data)
 	unsigned long status = 0;
 	int i, j, port_id, k;
 	u32 bit;
-	u8 val;
+	u8 val, int_val = 0;
 	bool tx, cleared;
+	unsigned short reg = 0;;
 
 	for (i = TAIKO_SLIM_PGD_PORT_INT_STATUS_RX_0, j = 0;
 	     i <= TAIKO_SLIM_PGD_PORT_INT_STATUS_TX_1; i++, j++) {

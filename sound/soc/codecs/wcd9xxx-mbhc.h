@@ -282,6 +282,7 @@ struct wcd9xxx_mbhc {
 	enum wcd9xxx_mbhc_version mbhc_version;
 
 	u32 rco_clk_rate;
+	bool is_cs_enabled;
 
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *debugfs_poke;

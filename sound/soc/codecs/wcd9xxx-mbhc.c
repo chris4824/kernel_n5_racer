@@ -1355,6 +1355,78 @@ static int wcd9xxx_pull_down_micbias(struct wcd9xxx_mbhc *mbhc, int us)
 	return 0;
 }
 
+/* Called under codec resource lock acquisition */
+void wcd9xxx_turn_onoff_current_source(struct wcd9xxx_mbhc *mbhc,
+				       struct mbhc_micbias_regs *mbhc_micb_regs,
+				       bool on, bool highhph)
+{
+	struct snd_soc_codec *codec;
+	struct wcd9xxx_mbhc_btn_detect_cfg *btn_det;
+	const struct wcd9xxx_mbhc_plug_detect_cfg *plug_det =
+	    WCD9XXX_MBHC_CAL_PLUG_DET_PTR(mbhc->mbhc_cfg->calibration);
+
+	btn_det = WCD9XXX_MBHC_CAL_BTN_DET_PTR(mbhc->mbhc_cfg->calibration);
+	codec = mbhc->codec;
+
+	WCD9XXX_BCL_ASSERT_LOCKED(mbhc->resmgr);
+
+	if ((on && mbhc->is_cs_enabled) ||
+	    (!on && !mbhc->is_cs_enabled)) {
+		pr_debug("%s: Current source is already %s\n",
+			__func__, on ? "ON" : "OFF");
+		return;
+	}
+
+	if (on) {
+		pr_debug("%s: enabling current source\n", __func__);
+		/* Nsc to 9 */
+		snd_soc_update_bits(codec, WCD9XXX_A_CDC_MBHC_B1_CTL,
+				    0x78, 0x48);
+		/* pull down diode bit to 0 */
+		snd_soc_update_bits(codec, mbhc_micb_regs->mbhc_reg,
+				    0x01, 0x00);
+		/*
+		 * Keep the low power insertion/removal
+		 * detection (reg 0x3DD) disabled
+		 */
+		snd_soc_update_bits(codec, WCD9XXX_A_CDC_MBHC_INT_CTL,
+				    0x01, 0x00);
+		/*
+		 * Enable the Mic Bias current source
+		 * Write bits[6:5] of register MICB_2_MBHC to 0x3 (V_20_UA)
+		 * Write bit[7] of register MICB_2_MBHC to 1
+		 * (INS_DET_ISRC_EN__ENABLE)
+		 * MICB_2_MBHC__SCHT_TRIG_EN to 1
+		 */
+		snd_soc_update_bits(codec, mbhc_micb_regs->mbhc_reg,
+				    0xF0, 0xF0);
+		/* Disconnect MBHC Override from MicBias and LDOH */
+		snd_soc_update_bits(codec, WCD9XXX_A_MAD_ANA_CTRL, 0x10, 0x00);
+		mbhc->is_cs_enabled = true;
+	} else {
+		pr_debug("%s: disabling current source\n", __func__);
+		/* Connect MBHC Override from MicBias and LDOH */
+		snd_soc_update_bits(codec, WCD9XXX_A_MAD_ANA_CTRL, 0x10, 0x10);
+		/* INS_DET_ISRC_CTL to acdb value */
+		snd_soc_update_bits(codec, mbhc_micb_regs->mbhc_reg,
+				    0x60, plug_det->mic_current << 5);
+		if (!highhph) {
+			/* INS_DET_ISRC_EN__ENABLE to 0 */
+			snd_soc_update_bits(codec,
+					    mbhc_micb_regs->mbhc_reg,
+					    0x80, 0x00);
+			/* MICB_2_MBHC__SCHT_TRIG_EN  to 0 */
+			snd_soc_update_bits(codec,
+					    mbhc_micb_regs->mbhc_reg,
+					    0x10, 0x00);
+		}
+		/* Nsc to acdb value */
+		snd_soc_update_bits(codec, WCD9XXX_A_CDC_MBHC_B1_CTL, 0x78,
+				    btn_det->mbhc_nsc << 3);
+		mbhc->is_cs_enabled = false;
+	}
+}
+
 static enum wcd9xxx_mbhc_plug_type
 wcd9xxx_codec_get_plug_type(struct wcd9xxx_mbhc *mbhc, bool highhph)
 {
@@ -1649,6 +1721,7 @@ static void wcd9xxx_mbhc_decide_swch_plug(struct wcd9xxx_mbhc *mbhc)
 {
 	enum wcd9xxx_mbhc_plug_type plug_type;
 	struct snd_soc_codec *codec = mbhc->codec;
+	bool current_source_enable;
 
 	pr_debug("%s: enter\n", __func__);
 
